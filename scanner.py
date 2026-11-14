@@ -13,6 +13,7 @@ log = logging.getLogger("scanner")
 
 
 class ScanError(Exception):
+    pass
 
 
 MAX_INPUT_LEN = 300
