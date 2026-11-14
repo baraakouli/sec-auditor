@@ -8,7 +8,9 @@ from urllib.parse import urljoin, urlparse
 
 import nmap
 import requests
+import urllib3
 
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 log = logging.getLogger("scanner")
 
 
@@ -20,17 +22,22 @@ MAX_INPUT_LEN = 300
 MAX_REDIRECTS = 4
 HTTP_BUDGET_SECONDS = 20
 USER_AGENT = (
-    "Mozilla/5.0 (compatible; WebSecurityAuditor/2.0; +https://github.com)"
+    "Mozilla/5.0 (compatible; WebSecurityAuditor/2.1; +https://github.com)"
 )
-# فحص أهم 16 منفذ للويب وقواعد البيانات مع تقليل إعادة المحاولة لتجنب الـ Timeout
-TARGET_PORTS = "21,22,23,25,80,110,139,443,445,3306,3389,5432,6379,8080,8443,27017"
-NMAP_ARGS = f"-sT -p {TARGET_PORTS} -T4 --max-retries 1 --host-timeout 20s -Pn -n"
+# أهم 10 منافذ مع ضبط RTT لمنع تعليق الفحص عند وجود جدار ناري
+TARGET_PORTS = "21,22,23,25,80,443,3306,3389,8080,8443"
+NMAP_ARGS = (
+    f"-sT -p {TARGET_PORTS} -T4 --max-retries 1 "
+    "--initial-rtt-timeout 500ms --max-rtt-timeout 1200ms "
+    "--host-timeout 15s -Pn -n"
+)
 
 DOMAIN_RE = re.compile(
     r"(?=.{4,253}\Z)"
     r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+"
     r"(?:[a-z]{2,63}|xn--[a-z0-9-]{1,59})"
 )
+VERSION_RE = re.compile(r"\d+\.\d+")
 
 MSG_INVALID = "الرجاء إدخال رابط أو دومين صالح، مثل example.com"
 
@@ -94,15 +101,9 @@ def resolve_public_ip(domain):
 
 PORT_RISK = {
     23: (15, "Telnet بروتوكول غير مشفّر، يجب إغلاقه فوراً."),
-    445: (15, "SMB لا ينبغي كشفه على الإنترنت أبداً."),
     3389: (15, "RDP (سطح المكتب البعيد) هدف متكرر لهجمات التخمين."),
-    6379: (15, "Redis مكشوف للعامة؛ قد يسمح بالتحكم الكامل بالسيرفر."),
-    27017: (15, "MongoDB مكشوفة للعامة؛ خطر تسريب قواعد البيانات."),
     3306: (12, "MySQL مكشوفة للإنترنت؛ يفضّل حصرها محلياً (127.0.0.1)."),
-    5432: (12, "PostgreSQL مكشوفة للإنترنت؛ يفضّل تقييد الوصول عبر جدار الحماية."),
     21: (10, "FTP ينقل كلمات المرور دون تشفير؛ استخدم SFTP."),
-    139: (10, "NetBIOS يكشف معلومات عن الشبكة الداخلية."),
-    110: (5, "POP3 غير مشفّر؛ فضّل POP3S أو IMAPS."),
     25: (3, "SMTP: تأكد من منع الترحيل المفتوح (Open Relay)."),
     8080: (3, "منفذ ويب بديل (8080)؛ تأكد أنه لا يكشف لوحة تحكم أو بيئة تطوير."),
     22: (2, "SSH: قيّد الوصول بالمفاتيح وجدار الحماية."),
@@ -119,16 +120,25 @@ def scan_ports(ip):
     args = NMAP_ARGS + (" -6" if ip_obj.version == 6 else "")
     try:
         nm = nmap.PortScanner()
-        nm.scan(hosts=str(ip_obj), arguments=args, timeout=30)
+        nm.scan(hosts=str(ip_obj), arguments=args, timeout=25)
     except Exception:
         log.exception("nmap failed")
         raise ScanError("تعذّر إكمال فحص البورتات حالياً.") from None
 
-    open_ports, penalty = [], 0
-    for host in nm.all_hosts():
+    hosts = nm.all_hosts()
+    if not hosts or not nm[hosts[0]].all_protocols():
+        raise ScanError("انتهت مهلة فحص البورتات أو أن جدار الحماية يحجب الفحص.")
+
+    open_ports, penalty, filtered_count, total_scanned = [], 0, 0, 0
+    for host in hosts:
         for proto in nm[host].all_protocols():
             for port, info in sorted(nm[host][proto].items()):
-                if info.get("state") != "open":
+                total_scanned += 1
+                state = info.get("state")
+                if state == "filtered":
+                    filtered_count += 1
+                    continue
+                if state != "open":
                     continue
                 cost, note = PORT_RISK.get(
                     port, (0 if port in SAFE_PORTS else DEFAULT_PENALTY, "")
@@ -141,6 +151,11 @@ def scan_ports(ip):
                     "risk": "high" if cost >= 10 else ("medium" if cost > 0 else "low"),
                     "note": note,
                 })
+
+    # إذا كانت جميع البورتات مفلترة بالكامل، نعتبر الفحص محجوباً وليس "0 بورت مفتوح"
+    if total_scanned > 0 and filtered_count == total_scanned:
+        raise ScanError("جدار الحماية الخاص بالموقع يحجب فحص البورتات (Filtered).")
+
     return {
         "ok": True,
         "open": open_ports,
@@ -163,25 +178,23 @@ SECURITY_HEADERS = [
      "why": "يتحكم في كمية معلومات الرابط المُرسَلة إلى المواقع الأخرى، فيحفظ خصوصية زوارك."},
     {"name": "Permissions-Policy", "weight": 5, "value": "geolocation=(), microphone=(), camera=()",
      "why": "يحدد ميزات المتصفح (الكاميرا، الميكروفون، الموقع) التي يُسمح للصفحة باستخدامها."},
-    {"name": "X-Powered-By (إخفاء البصمة)", "weight": 5, "value": "off", "leak_header": "x-powered-by",
-     "why": "إخفاء هذه الترويسة يمنع المهاجمين من معرفة إصدار لغة البرمجة أو الإطار المستخدم (مثل PHP أو Express)."},
+    {"name": "إخفاء بصمة السيرفر (Server / X-Powered-By)", "weight": 5, "value": "off", "is_leak_check": True,
+     "why": "إخفاء إصدارات السيرفر ولغة البرمجة يمنع المهاجمين من البحث عن ثغرات جاهزة (CVEs) لإصدارك."},
 ]
 HEADERS_MAX = sum(h["weight"] for h in SECURITY_HEADERS)  # = 60
 
 
 def _peer_is_public(resp):
     try:
-        sock = getattr(resp.raw._connection, "sock", None)
-        if sock is None:
-            return True
-        peer = sock.getpeername()[0]
-        return is_public_ip(peer.split("%")[0])
+        peer = resp.raw._connection.sock.getpeername()[0]
     except Exception:
-        return False
+        return True
+    return is_public_ip(peer.split("%")[0])
 
 
-def _fetch(url, deadline):
+def _fetch(url, deadline, verify_ssl=True):
     session = requests.Session()
+    checked_hosts = set()
     try:
         for _ in range(MAX_REDIRECTS + 1):
             if time.monotonic() > deadline:
@@ -194,18 +207,20 @@ def _fetch(url, deadline):
                 raise ScanError("حوّل الموقع الطلب إلى عنوان غير مسموح بفحصه.") from None
             if parts.scheme not in ("http", "https") or not port_ok:
                 raise ScanError("حوّل الموقع الطلب إلى عنوان غير مسموح بفحصه.")
-            resolve_public_ip(host)
+            if host not in checked_hosts:
+                resolve_public_ip(host)
+                checked_hosts.add(host)
             resp = session.get(
-                url, headers={"User-Agent": USER_AGENT}, timeout=(3, 6),
-                allow_redirects=False, stream=True, verify=True,
+                url, headers={"User-Agent": USER_AGENT}, timeout=(4, 7),
+                allow_redirects=False, stream=True, verify=verify_ssl,
             )
             try:
                 if not _peer_is_public(resp):
                     raise ScanError("هذا الموقع يشير إلى عنوان داخلي أو محجوز.")
-                if resp.is_redirect:
-                    url = urljoin(url, resp.headers.get("Location", ""))
+                if resp.is_redirect and "Location" in resp.headers:
+                    url = urljoin(url, resp.headers["Location"])
                     continue
-                return url, resp.status_code, dict(resp.headers)
+                return url, resp.status_code, dict(resp.headers), verify_ssl
             finally:
                 resp.close()
         raise ScanError("الموقع يحوّل الطلب عدداً كبيراً من المرات.")
@@ -213,39 +228,72 @@ def _fetch(url, deadline):
         session.close()
 
 
+def _validate_header(name, value, headers, is_https):
+    """يتحقق من وجود الترويسة وصحة قيمتها أمنياً."""
+    if name == "Strict-Transport-Security":
+        if not is_https or not value:
+            return False, None
+        if "max-age=0" in value.lower().replace(" ", ""):
+            return False, None
+        return True, value[:200]
+
+    if name == "X-Frame-Options":
+        if value and any(k in value.lower() for k in ("deny", "sameorigin")):
+            return True, value[:200]
+        if "frame-ancestors" in headers.get("content-security-policy", "").lower():
+            return True, "(مغطّى عبر CSP: frame-ancestors)"
+        return False, None
+
+    if name == "X-Content-Type-Options":
+        if value and "nosniff" in value.lower():
+            return True, value[:200]
+        return False, None
+
+    if value is not None and value.strip():
+        return True, value[:200]
+    return False, None
+
+
 def check_headers(domain):
-    deadline = time.monotonic() + HTTP_BUDGET_SECONDS
     result = None
-    for scheme in ("https", "http"):
+    # المحاولة بـ HTTPS ثم HTTP، مع التعامل مع الشهادات المنتهية دون إيقاف الفحص
+    for scheme, verify in (("https", True), ("http", True), ("https", False)):
+        deadline = time.monotonic() + 10
         try:
-            result = _fetch(f"{scheme}://{domain}/", deadline)
+            result = _fetch(f"{scheme}://{domain}/", deadline, verify_ssl=verify)
             break
-        except requests.RequestException:
+        except (requests.RequestException, ScanError) as exc:
+            if isinstance(exc, ScanError) and "داخلي أو محجوز" in str(exc):
+                raise
             continue
+
     if result is None:
         raise ScanError("تعذّر الاتصال بالموقع عبر HTTP أو HTTPS لفحص الترويسات.")
 
-    final_url, status, raw = result
-    is_https = final_url.startswith("https://")
+    final_url, status, raw, ssl_verified = result
+    is_https = final_url.startswith("https://") and ssl_verified
     headers = {k.lower(): v for k, v in raw.items()}
     items, earned = [], 0
 
     for spec in SECURITY_HEADERS:
-        if "leak_header" in spec:
-            leaked_val = headers.get(spec["leak_header"])
-            present = leaked_val is None
-            display_val = "مخفي (آمن)" if present else f"مكشوف: {leaked_val}"
-            nginx_fix = "fastcgi_hide_header X-Powered-By; server_tokens off;"
-            apache_fix = "Header unset X-Powered-By"
+        if spec.get("is_leak_check"):
+            x_pow = headers.get("x-powered-by")
+            srv = headers.get("server", "")
+            srv_leaks = bool(VERSION_RE.search(srv))
+            leaks = []
+            if x_pow:
+                leaks.append(f"X-Powered-By: {x_pow}")
+            if srv_leaks:
+                leaks.append(f"Server: {srv}")
+            present = len(leaks) == 0
+            display_val = "مخفي (آمن)" if present else f"مكشوف ({' | '.join(leaks)[:180]})"
+            nginx_fix = "server_tokens off; fastcgi_hide_header X-Powered-By;"
+            apache_fix = "ServerTokens Prod\nHeader unset X-Powered-By"
         else:
-            value = headers.get(spec["name"].lower())
-            if spec["name"] == "Strict-Transport-Security" and not is_https:
-                value = None
-            elif (value is None and spec["name"] == "X-Frame-Options"
-                  and "frame-ancestors" in headers.get("content-security-policy", "").lower()):
-                value = "(مغطّى عبر CSP: frame-ancestors)"
-            present = value is not None
-            display_val = value[:200] if present else None
+            raw_val = headers.get(spec["name"].lower())
+            present, display_val = _validate_header(
+                spec["name"], raw_val, headers, is_https
+            )
             nginx_fix = f'add_header {spec["name"]} "{spec["value"]}" always;'
             apache_fix = f'Header always set {spec["name"]} "{spec["value"]}"'
 
@@ -302,6 +350,17 @@ def run_audit(raw_target):
         f_heads = pool.submit(_safe, check_headers, domain)
         ports, headers = f_ports.result(), f_heads.result()
 
+    # استكمال منطقي: إذا نجح الاتصال بالويب بينما لم يظهر المنفذ في Nmap، نضيفه تلقائياً
+    if ports.get("ok") and headers.get("ok") and not ports.get("open"):
+        web_port = 443 if headers.get("https") else 80
+        ports["open"].append({
+            "port": web_port,
+            "protocol": "tcp",
+            "service": "https" if web_port == 443 else "http",
+            "risk": "low",
+            "note": "",
+        })
+
     earned = possible = 0
     for part in (ports, headers):
         if part.get("ok"):
@@ -311,11 +370,12 @@ def run_audit(raw_target):
     score = {"value": None, "grade": "—", "label": "غير متاح", "level": "warn"}
     if possible:
         value = round(earned * 100 / possible)
-        # سقف التقييم عند غياب HTTPS أو فشل أحد الفحصين لمنع تقييم A مضلل
+        # إذا كان الموقع يعمل بدون HTTPS صالح، السقف الأعلى للتقييم 65 (C)
         if headers.get("ok") and not headers.get("https"):
             value = min(value, 65)
-        if not (ports.get("ok") and headers.get("ok")):
-            value = min(value, 70)
+        # إذا فشل الاتصال بالويب كلياً ونجح فحص البورتات فقط، السقف الأعلى 40 (D)
+        if not headers.get("ok"):
+            value = min(value, 40)
         grade, label, level = _grade(value)
         score = {"value": value, "grade": grade, "label": label, "level": level}
 
