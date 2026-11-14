@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#020805">
+  <title>مدقّق أمان المواقع</title>
+  <meta name="description" content="افحص عنوان IP والبورتات المفتوحة وترويسات الأمان لموقعك واحصل على تقييم من 100.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2300ff88' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z'/%3E%3Cpath d='M9 12l2 2 4-4'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script nonce="{{ nonce }}">
+    tailwind.config = {
+      theme: { extend: {
+        colors: { hk: { bg: '#020805', panel: '#06140d', line: '#0e4a2c', neon: '#00ff88', text: '#d1fae5', mute: '#6fae8f', red: '#ff3b5c', amber: '#ffb020' } },
+        fontFamily: { sans: ['Tajawal', 'system-ui', 'sans-serif'], mono: ['"Share Tech Mono"', 'ui-monospace', 'monospace'] }
+      } }
+    };
+  </script>
+  <style>
+    html { color-scheme: dark; }
+    body { background: #020805; caret-color: #00ff88; }
+    body::after { content: ""; position: fixed; inset: 0; z-index: 50; pointer-events: none;
+      background: repeating-linear-gradient(0deg, rgba(0,0,0,.14) 0, rgba(0,0,0,.14) 1px, transparent 1px, transparent 3px); }
+    body::before { content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none;
+      background: radial-gradient(ellipse 80% 60% at 50% 40%, transparent 40%, rgba(0,0,0,.75) 100%); }
+    ::selection { background: #00ff88; color: #020805; }
+    :focus-visible { outline: 2px solid #00ff88; outline-offset: 2px; }
+    input:focus-visible { outline: none; }
+
+    .term { border: 1px solid #0e4a2c; border-radius: .6rem; background: rgba(3,14,9,.94); box-shadow: 0 0 0 1px rgba(0,255,136,.04), 0 0 28px rgba(0,255,136,.07); overflow: hidden; }
+    .term-bar { direction: ltr; display: flex; align-items: center; gap: .75rem; padding: .5rem .9rem; background: #08201a; border-bottom: 1px solid #0e4a2c; font: 12px "Share Tech Mono", monospace; color: #6fae8f; }
+    .dots { width: 10px; height: 10px; border-radius: 50%; background: #ff3b5c; box-shadow: 16px 0 #ffb020, 32px 0 #00ff88; margin-inline-end: 40px; }
+    .glow { text-shadow: 0 0 14px rgba(0,255,136,.55); }
+    .cursor::after { content: ""; display: inline-block; width: .55em; height: 1.05em; margin-inline-start: 3px; vertical-align: -.15em; background: #00ff88; animation: blink 1s steps(1) infinite; }
+    .btn-hack { background: #00ff88; color: #020805; box-shadow: 0 0 18px rgba(0,255,136,.45); transition: box-shadow .2s, transform .1s; }
+    .btn-hack:hover:not(:disabled) { box-shadow: 0 0 34px rgba(0,255,136,.85); }
+    .btn-hack:active:not(:disabled) { transform: translateY(1px); }
+    .row-hover { transition: border-color .2s, background-color .2s; }
+    .row-hover:hover { border-color: rgba(0,255,136,.55); }
+
+    .glitch { animation: glitch .9s steps(1) 1 .5s; }
+    .glitch:hover { animation: glitch .5s steps(1) 2; }
+    .reveal { animation: reveal .6s cubic-bezier(.2,.8,.2,1) both; }
+
+    @keyframes blink { 50% { opacity: 0; } }
+    @keyframes reveal { from { opacity: 0; transform: translateY(18px); filter: blur(4px); } to { opacity: 1; transform: none; filter: none; } }
+    @keyframes glitch {
+      0%, 100% { text-shadow: 0 0 14px rgba(0,255,136,.55); transform: none; }
+      20% { text-shadow: 3px 0 #ff3b5c, -3px 0 #22d3ee, 0 0 14px rgba(0,255,136,.55); transform: translateX(-2px); }
+      40% { text-shadow: -3px 0 #ff3b5c, 3px 0 #22d3ee; transform: translateX(2px) skewX(-3deg); }
+      60% { text-shadow: 2px 0 #22d3ee, -2px 0 #ff3b5c; transform: translateX(-1px); }
+      80% { text-shadow: 0 0 14px rgba(0,255,136,.55); transform: none; }
+    }
+    @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+  </style>
+</head>
+<body class="font-sans bg-hk-bg text-hk-text min-h-screen antialiased">
+  <canvas id="rain" aria-hidden="true" class="fixed inset-0 w-full h-full -z-10 opacity-25"></canvas>
+
+  <main class="relative max-w-3xl mx-auto px-4 py-10 sm:py-14">
+
+    <header class="mb-8">
+      <div class="flex items-center gap-2 font-mono text-xs text-hk-mute mb-5" dir="ltr">
+        <span class="w-2 h-2 rounded-full bg-hk-neon animate-pulse"></span> secure-shell online
+      </div>
+      <h1 class="glitch glow text-4xl sm:text-5xl font-extrabold text-hk-neon leading-tight">مدقّق أمان المواقع</h1>
+      <p class="text-hk-text/80 mt-3 text-lg">اكشف عنوان الـ IP، والبورتات المفتوحة، وثغرات ترويسات الحماية في موقعك، وخذ تقييماً من 100.</p>
+      <div class="mt-5 font-mono text-sm text-hk-neon/90 bg-black/50 border border-hk-line rounded-md px-4 py-2 overflow-x-auto whitespace-nowrap" dir="ltr">
+        <span class="text-hk-mute">root@auditor:~$</span> <span id="typed"></span><span class="cursor"></span>
+      </div>
+    </header>
+
+    <form id="scan-form" class="term" novalidate>
+      <div class="term-bar"><span class="dots"></span><span dir="ltr">target.scan</span></div>
+      <div class="p-5 sm:p-6">
+        <label for="target" class="block font-bold text-hk-neon mb-2">رابط الموقع أو الدومين</label>
+        <div class="flex flex-col sm:flex-row gap-3">
+          <div class="flex-1 flex items-center rounded-md bg-black/70 border border-hk-line focus-within:border-hk-neon focus-within:shadow-[0_0_18px_rgba(0,255,136,.25)] transition-shadow" dir="ltr">
+            <span class="pl-4 font-mono text-hk-neon select-none">$</span>
+            <input id="target" type="text" maxlength="300" autocomplete="off" spellcheck="false" inputmode="url" placeholder="example.com"
+                   class="w-full bg-transparent px-3 py-3 font-mono text-hk-neon placeholder-hk-mute/60 text-left">
+          </div>
+          <button id="scan-btn" type="submit" class="btn-hack rounded-md font-extrabold px-7 py-3 disabled:opacity-50 disabled:cursor-not-allowed">تنفيذ الفحص</button>
+        </div>
+        <p class="text-xs text-hk-mute mt-3 leading-relaxed">افحص المواقع التي تملكها أو لديك إذن صريح بفحصها فقط. يُسمح بـ 5 فحوصات في الدقيقة، ولا يتم تخزين أي بيانات.</p>
+      </div>
+    </form>
+
+    <section id="loading" class="hidden mt-6 term" role="status" aria-live="polite">
+      <div class="term-bar"><span class="dots"></span><span dir="ltr">scan.log</span></div>
+      <div class="p-5">
+        <p class="font-bold text-hk-neon glow mb-3">جارٍ الفحص… قد يستغرق حتى 30 ثانية</p>
+        <div id="log" class="font-mono text-sm text-hk-neon/90 space-y-1 min-h-[7.5rem]" dir="ltr"></div>
+        <div class="mt-4 h-1.5 rounded-full bg-hk-line/60 overflow-hidden" dir="ltr"><div id="bar" class="h-full w-0 bg-hk-neon shadow-[0_0_12px_#00ff88] transition-[width] duration-500"></div></div>
+      </div>
+    </section>
+
+    <div id="error" class="hidden mt-6 rounded-md border border-hk-red/60 bg-hk-red/10 text-red-200 px-4 py-3" role="alert"></div>
+
+    <section id="results" class="hidden mt-6 space-y-5" aria-live="polite">
+      <div class="term">
+        <div class="term-bar"><span class="dots"></span><span dir="ltr">score.txt</span></div>
+        <div class="p-6 flex flex-col sm:flex-row items-center gap-6">
+          <div id="gauge" class="shrink-0 w-36 h-36 rounded-full grid place-items-center">
+            <div class="w-[7.4rem] h-[7.4rem] rounded-full bg-hk-bg grid place-items-center text-center">
+              <div><div id="score-num" class="font-mono text-5xl text-white leading-none">0</div><div class="text-xs text-hk-mute mt-1">من 100</div></div>
+            </div>
+          </div>
+          <div class="text-center sm:text-start min-w-0">
+            <div class="flex items-center justify-center sm:justify-start gap-3">
+              <span id="grade-badge" class="font-mono rounded-md border px-3 py-0.5 text-xl"></span>
+              <span id="grade-label" class="text-2xl font-extrabold text-white"></span>
+            </div>
+            <p class="mt-3 text-hk-mute">الدومين: <span id="res-domain" dir="ltr" class="inline-block font-mono text-hk-text break-all"></span></p>
+            <p class="text-hk-mute">عنوان الـ IP: <span id="res-ip" dir="ltr" class="inline-block font-mono text-hk-neon glow"></span></p>
+            <p id="elapsed" dir="ltr" class="font-mono text-xs text-hk-mute mt-2"></p>
+          </div>
+        </div>
+      </div>
+
+      <div class="term">
+        <div class="term-bar"><span class="dots"></span><span dir="ltr">nmap --top-ports 10</span></div>
+        <div class="p-6">
+          <h2 class="text-lg font-bold text-hk-neon">البورتات المفتوحة</h2>
+          <p class="text-sm text-hk-mute mb-4">فحص أشهر 10 بورتات — تُعرض المفتوحة فقط.</p>
+          <div id="ports-body" class="space-y-2"></div>
+        </div>
+      </div>
+
+      <div class="term">
+        <div class="term-bar"><span class="dots"></span><span dir="ltr">http-headers.audit</span></div>
+        <div class="p-6">
+          <h2 class="text-lg font-bold text-hk-neon">ترويسات الأمان</h2>
+          <p class="text-sm text-hk-mute"><bdi dir="ltr">HTTP Security Headers</bdi> — الأخضر موجود، والأحمر ناقص ويجب إضافته.</p>
+          <p id="headers-summary" class="text-sm text-hk-text font-medium mt-1 mb-4"></p>
+          <div id="headers-body" class="space-y-3"></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script nonce="{{ nonce }}">
+    const $ = (id) => document.getElementById(id);
+    const REDUCED = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const COLORS = { good: '#00ff88', warn: '#ffb020', bad: '#ff3b5c' };
+
+    // كل النصوص القادمة من الموقع المفحوص تُعرض عبر textContent فقط (حماية من XSS)
+    function el(tag, cls, text) {
+      const n = document.createElement(tag);
+      if (cls) n.className = cls;
+      if (text !== undefined && text !== null) n.textContent = text;
+      return n;
+    }
+
+    // ما بين |...| يُعرض كنص LTR مستقل داخل <bdi> حتى لا تتبعثر الكلمات اللاتينية في الجملة العربية
+    function mixed(parent, str) {
+      str.split('|').forEach((t, i) => {
+        if (!t) return;
+        if (i % 2) { const b = el('bdi', '', t); b.dir = 'ltr'; parent.appendChild(b); }
+        else parent.appendChild(document.createTextNode(t));
+      });
+      return parent;
+    }
+
+    function note(msg) {
+      return el('div', 'rounded-md border border-hk-amber/50 bg-hk-amber/10 text-amber-200 text-sm px-4 py-3', msg);
+    }
+
+    // ───────── مطر ماتريكس في الخلفية ─────────
+    (function rain() {
+      const c = $('rain');
+      if (REDUCED) { c.style.display = 'none'; return; }
+      const x = c.getContext('2d');
+      const chars = 'アイウエオカキクケコサシスセソ0123456789ABCDEF<>/$#%'.split('');
+      const size = 16;
+      let w, h, cols, drops;
+      function fit() {
+        w = c.width = window.innerWidth; h = c.height = window.innerHeight;
+        cols = Math.ceil(w / size);
+        drops = Array.from({ length: cols }, () => Math.random() * h / size);
+      }
+      fit();
+      window.addEventListener('resize', fit);
+      setInterval(() => {
+        if (document.hidden) return;
+        x.fillStyle = 'rgba(2,8,5,0.09)';
+        x.fillRect(0, 0, w, h);
+        x.font = size + 'px "Share Tech Mono", monospace';
+        for (let i = 0; i < cols; i++) {
+          x.fillStyle = Math.random() > 0.975 ? '#d1fae5' : '#00ff88';
+          x.fillText(chars[Math.floor(Math.random() * chars.length)], i * size, drops[i] * size);
+          if (drops[i] * size > h && Math.random() > 0.975) drops[i] = 0;
+          drops[i]++;
+        }
+      }, 55);
+    })();
+
+    // ───────── كتابة السطر العلوي حرفاً حرفاً ─────────
+    (function typeLine() {
+      const text = 'nmap -sT --top-ports 10 target && curl -sI target | grep -i security';
+      const out = $('typed');
+      if (REDUCED) { out.textContent = text; return; }
+      let i = 0;
+      (function step() { out.textContent = text.slice(0, ++i); if (i < text.length) setTimeout(step, 38); })();
+    })();
+
+    async function copyText(text, btn) {
+      try { await navigator.clipboard.writeText(text); btn.textContent = 'تم النسخ ✓'; }
+      catch (e) { btn.textContent = 'انسخ يدوياً'; }
+      setTimeout(() => { btn.textContent = 'نسخ'; }, 1600);
+    }
+
+    function codeBlock(label, code) {
+      const wrap = el('div', 'rounded-md border border-hk-line bg-black/70 overflow-hidden');
+      const bar = el('div', 'flex items-center justify-between gap-3 px-3 py-1.5 bg-hk-line/30 text-xs text-hk-mute');
+      bar.appendChild(mixed(el('span', 'min-w-0'), label));
+      const btn = el('button', 'shrink-0 text-hk-neon hover:text-white font-bold', 'نسخ');
+      btn.type = 'button';
+      btn.addEventListener('click', () => copyText(code, btn));
+      bar.appendChild(btn);
+      const pre = el('pre', 'p-3 text-xs font-mono text-hk-neon overflow-x-auto');
+      pre.dir = 'ltr';
+      pre.style.textAlign = 'left';
+      pre.appendChild(el('code', '', code));
+      wrap.append(bar, pre);
+      return wrap;
+    }
+
+    // ───────── عرض النتائج ─────────
+    function renderScore(r, seconds) {
+      const s = r.score;
+      const color = COLORS[s.level] || COLORS.warn;
+      const target = s.value === null ? 0 : Math.max(0, Math.min(100, Number(s.value)));
+      const gauge = $('gauge'), num = $('score-num');
+      gauge.style.boxShadow = '0 0 30px ' + color + '55';
+      function paint(v) {
+        gauge.style.background = 'conic-gradient(' + color + ' ' + (v * 3.6) + 'deg, #0e2a1d 0)';
+        num.textContent = s.value === null ? '—' : String(Math.round(v));
+      }
+      if (REDUCED || s.value === null) paint(target);
+      else {
+        const t0 = performance.now(), dur = 1400;
+        (function tick(now) {
+          const k = Math.min(1, (now - t0) / dur);
+          paint(target * (1 - Math.pow(1 - k, 3)));
+          if (k < 1) requestAnimationFrame(tick);
+        })(t0);
+      }
+      const badge = $('grade-badge');
+      badge.textContent = '[ ' + s.grade + ' ]';
+      badge.style.color = color; badge.style.borderColor = color + '88'; badge.style.background = color + '14';
+      $('grade-label').textContent = s.label;
+      $('res-domain').textContent = r.domain;
+      $('res-ip').textContent = r.ip;
+      $('elapsed').textContent = '> scan complete in ' + seconds.toFixed(1) + 's';
+    }
+
+    function renderPorts(p) {
+      const body = $('ports-body');
+      body.replaceChildren();
+      if (!p.ok) { body.appendChild(note(p.error)); return; }
+      if (!p.open.length) {
+        body.appendChild(el('div', 'rounded-md border border-hk-neon/40 bg-hk-neon/5 text-hk-neon px-4 py-3', '✓ لا توجد بورتات مفتوحة ضمن أشهر 10 بورتات.'));
+        return;
+      }
+      p.open.forEach((o) => {
+        const risky = o.risk === 'high', mid = o.risk === 'medium';
+        const tone = risky ? 'border-hk-red/50 bg-hk-red/5' : (mid ? 'border-hk-amber/50 bg-hk-amber/5' : 'border-hk-line bg-black/40');
+        const row = el('div', 'row-hover rounded-md border px-4 py-3 ' + tone);
+        const top = el('div', 'flex items-center justify-between gap-3');
+        const left = el('div', 'flex items-center gap-3 font-mono', '');
+        left.dir = 'ltr';
+        left.appendChild(el('span', risky ? 'text-hk-red' : (mid ? 'text-hk-amber' : 'text-hk-neon'), '[OPEN]'));
+        left.appendChild(el('span', 'text-white', o.port + '/' + o.protocol));
+        left.appendChild(el('span', 'text-hk-mute', o.service));
+        top.appendChild(left);
+        if (risky) top.appendChild(el('span', 'text-xs font-bold text-hk-red', 'خطِر'));
+        else if (mid) top.appendChild(el('span', 'text-xs font-bold text-hk-amber', 'يحتاج مراجعة'));
+        row.appendChild(top);
+        if (o.note) row.appendChild(el('p', 'text-sm text-hk-mute mt-1', o.note));
+        body.appendChild(row);
+      });
+    }
+
+    function renderHeaders(h) {
+      const body = $('headers-body');
+      body.replaceChildren();
+      if (!h.ok) { $('headers-summary').textContent = ''; body.appendChild(note(h.error)); return; }
+      $('headers-summary').textContent = 'الموجود: ' + h.present + ' من ' + h.total +
+        (h.https ? '' : ' — تنبيه: الموقع لا يعمل عبر HTTPS.');
+      h.items.forEach((it) => {
+        const ok = it.present;
+        const card = el('div', 'row-hover rounded-md border p-4 ' + (ok ? 'border-hk-neon/35 bg-hk-neon/5' : 'border-hk-red/45 bg-hk-red/5'));
+        const head = el('div', 'flex flex-col items-start sm:flex-row sm:items-center sm:justify-between gap-1 sm:gap-3');
+        const name = el('span', 'font-mono text-sm sm:text-base whitespace-nowrap ' + (ok ? 'text-hk-neon' : 'text-hk-red'), (ok ? '[ PASS ] ' : '[ FAIL ] ') + it.name);
+        name.dir = 'ltr';
+        head.appendChild(name);
+        head.appendChild(el('span', 'text-xs font-bold ' + (ok ? 'text-hk-neon' : 'text-hk-red'), ok ? 'موجود' : 'مفقود، يجب إضافته'));
+        card.appendChild(head);
+        card.appendChild(el('p', 'text-sm text-hk-text/85 mt-2 leading-relaxed', it.why));
+        if (ok) {
+          const val = el('code', 'block mt-3 text-xs font-mono text-hk-text bg-black/60 rounded-md px-3 py-2 break-all', it.value);
+          val.dir = 'ltr'; val.style.textAlign = 'left';
+          card.appendChild(val);
+        } else {
+          const box = el('div', 'mt-3 space-y-2');
+          box.appendChild(codeBlock('|Nginx| — داخل كتلة |server|', it.nginx));
+          box.appendChild(codeBlock('|Apache| — داخل |VirtualHost| أو |.htaccess|، ويتطلب |mod_headers|', it.apache));
+          card.appendChild(box);
+        }
+        body.appendChild(card);
+      });
+    }
+
+    // ───────── سجل الفحص الحي أثناء الانتظار ─────────
+    const LOG = [
+      '> resolving DNS ...',
+      '> SSRF guard: checking resolved IPs ...',
+      '> nmap -sT --top-ports 10 -T4 ...',
+      '> GET / -> collecting security headers ...',
+      '> computing score ...'
+    ];
+    let logTimer = null, barTimer = null;
+    function setLoading(on) {
+      $('loading').classList.toggle('hidden', !on);
+      $('scan-btn').disabled = on;
+      $('target').disabled = on;
+      clearInterval(logTimer); clearInterval(barTimer);
+      const log = $('log'), bar = $('bar');
+      if (!on) { bar.style.width = '100%'; return; }
+      log.replaceChildren(); bar.style.width = '4%';
+      let i = 0, w = 4;
+      const add = () => {
+        log.querySelectorAll('.cursor').forEach((n) => n.classList.remove('cursor'));
+        if (i < LOG.length) { log.appendChild(el('div', 'cursor', LOG[i++])); }
+      };
+      add();
+      logTimer = setInterval(add, 2600);
+      barTimer = setInterval(() => { w += (92 - w) * 0.07; bar.style.width = w.toFixed(1) + '%'; }, 500);
+    }
+
+    function showError(msg) { const e = $('error'); e.textContent = msg; e.classList.remove('hidden'); }
+
+    function revealResults() {
+      const res = $('results');
+      res.classList.remove('hidden');
+      Array.from(res.children).forEach((c, i) => {
+        c.classList.remove('reveal'); void c.offsetWidth;
+        c.style.animationDelay = (i * 140) + 'ms';
+        c.classList.add('reveal');
+      });
+      res.scrollIntoView({ behavior: REDUCED ? 'auto' : 'smooth', block: 'start' });
+    }
+
+    $('scan-form').addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const target = $('target').value.trim();
+      $('error').classList.add('hidden');
+      $('results').classList.add('hidden');
+      if (!target) { showError('الرجاء إدخال رابط الموقع أو الدومين أولاً.'); return; }
+
+      setLoading(true);
+      const started = performance.now();
+      const ctrl = new AbortController();
+      const abort = setTimeout(() => ctrl.abort(), 90000);
+      try {
+        const res = await fetch('/scan', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ target: target }),
+          signal: ctrl.signal
+        });
+        let data = null;
+        try { data = await res.json(); } catch (e) { /* ignore */ }
+        if (!res.ok || !data) throw new Error((data && data.error) || 'تعذّر إكمال الفحص. حاول مرة أخرى لاحقاً.');
+        renderScore(data, (performance.now() - started) / 1000);
+        renderPorts(data.ports);
+        renderHeaders(data.headers);
+        revealResults();
+      } catch (err) {
+        showError(err.name === 'AbortError' ? 'استغرق الفحص وقتاً أطول من المتوقع. حاول مرة أخرى.' : err.message);
+      } finally {
+        clearTimeout(abort);
+        setLoading(false);
+        $('target').focus();
+      }
+    });
+  </script>
+</body>
+</html>
